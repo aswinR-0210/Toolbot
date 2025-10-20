@@ -1,102 +1,93 @@
-#define echopin A4 // Echo pin
-#define trigpin A5 // Trigger pin
+#include <Servo.h>
 
-int motor_r2 = 9;
-int motor_r1 = 10;
-int motor_12 = 5;
-int motor_11 = 6;
+/* ----- PINS ----- */
+#define M1_IN1 2
+#define M1_IN2 3
+#define M2_IN1 4
+#define M2_IN2 5
+#define M1_EN 6
+#define M2_EN 9
 
-int speed = 115;
-int frontdist;
-long duration;
-int setdist = 10;
+#define SENSOR_LEFT 7
+#define SENSOR_RIGHT 8
 
-int L_S = A0; // Sensor Left
-int R_S = A1; // Sensor Right
+#define US_FRONT_TRIG 10
+#define US_FRONT_ECHO 11
+#define US_BACK_TRIG 12
+#define US_BACK_ECHO 13
 
-long data() {
-  digitalWrite(trigpin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigpin, HIGH);
-  delayMicroseconds(10);
-  duration = pulseIn(echopin, HIGH);
-  return duration / 29 / 2; // distance in cm
+#define SERVO_PIN A0
+
+Servo drawerServo;
+
+/* ----- GLOBALS ----- */
+bool robotRunning = false;
+bool destinationReached = false;
+unsigned long bothSensorsSince = 0;
+const int MOTOR_SPEED = 200;
+const unsigned long DESTINATION_CONFIRM_MS = 600; // 600ms both sensors on line
+const int OBSTACLE_DIST_CM = 20; 
+
+/* ----- FUNCTIONS ----- */
+long readUltrasonicCM(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW); delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH, 30000); 
+  long distance = duration * 0.034 / 2; 
+  return distance;
 }
 
-void stopMotor() {
-  analogWrite(motor_11, 0);
-  analogWrite(motor_12, 0);
-  analogWrite(motor_r1, 0);
-  analogWrite(motor_r2, 0);
-}
+void motorStop() { analogWrite(M1_EN,0); analogWrite(M2_EN,0); digitalWrite(M1_IN1,LOW); digitalWrite(M1_IN2,LOW); digitalWrite(M2_IN1,LOW); digitalWrite(M2_IN2,LOW);}
+void motorForward(int s){digitalWrite(M1_IN1,HIGH);digitalWrite(M1_IN2,LOW);digitalWrite(M2_IN1,HIGH);digitalWrite(M2_IN2,LOW);analogWrite(M1_EN,s);analogWrite(M2_EN,s);}
+void motorLeft(int s){digitalWrite(M1_IN1,LOW);digitalWrite(M1_IN2,LOW);digitalWrite(M2_IN1,HIGH);digitalWrite(M2_IN2,LOW);analogWrite(M1_EN,0);analogWrite(M2_EN,s);}
+void motorRight(int s){digitalWrite(M1_IN1,HIGH);digitalWrite(M1_IN2,LOW);digitalWrite(M2_IN1,LOW);digitalWrite(M2_IN2,LOW);analogWrite(M1_EN,s);analogWrite(M2_EN,0);}
+void openDrawers(){drawerServo.write(0); Serial.println("DRAWER_OPEN");}
+void closeDrawers(){drawerServo.write(90);}
 
-void forward() {
-  analogWrite(motor_11, speed);
-  analogWrite(motor_12, 0);
-  analogWrite(motor_r1, 0);
-  analogWrite(motor_r2, speed);
-}
-
-void backward() {
-  analogWrite(motor_11, 0);
-  analogWrite(motor_12, speed);
-  analogWrite(motor_r1, speed);
-  analogWrite(motor_r2, 0);
-}
-
-void turnRight() {
-  analogWrite(motor_11, 0);
-  analogWrite(motor_12, speed);
-  analogWrite(motor_r1, 0);
-  analogWrite(motor_r2, speed);
-}
-
-void turnLeft() {
-  analogWrite(motor_11, speed);
-  analogWrite(motor_12, 0);
-  analogWrite(motor_r1, speed);
-  analogWrite(motor_r2, 0);
-}
-
+/* ----- SETUP ----- */
 void setup() {
-  pinMode(motor_11, OUTPUT);
-  pinMode(motor_12, OUTPUT);
-  pinMode(motor_r1, OUTPUT);
-  pinMode(motor_r2, OUTPUT);
-  
-  pinMode(trigpin, OUTPUT);
-  pinMode(echopin, INPUT);
-  
-  pinMode(L_S, INPUT);
-  pinMode(R_S, INPUT);
+  pinMode(M1_IN1,OUTPUT); pinMode(M1_IN2,OUTPUT);
+  pinMode(M2_IN1,OUTPUT); pinMode(M2_IN2,OUTPUT);
+  pinMode(M1_EN,OUTPUT); pinMode(M2_EN,OUTPUT);
 
-  Serial.begin(9600);
-  delay(1000);
+  pinMode(SENSOR_LEFT,INPUT); pinMode(SENSOR_RIGHT,INPUT);
+
+  pinMode(US_FRONT_TRIG,OUTPUT); pinMode(US_FRONT_ECHO,INPUT);
+  pinMode(US_BACK_TRIG,OUTPUT); pinMode(US_BACK_ECHO,INPUT);
+
+  drawerServo.attach(SERVO_PIN); closeDrawers();
+  
+  Serial.begin(9600); // Communication with ESP8266
 }
 
+/* ----- LOOP ----- */
 void loop() {
-  frontdist = data();
-  Serial.println(frontdist);
+  if (!robotRunning || destinationReached) { motorStop(); return; }
 
-  if (frontdist > setdist) {
-    if ((digitalRead(L_S) == 0) && (digitalRead(R_S) == 0)) {
-      forward();
+  // Obstacle detection
+  long frontDist = readUltrasonicCM(US_FRONT_TRIG, US_FRONT_ECHO);
+  long backDist = readUltrasonicCM(US_BACK_TRIG, US_BACK_ECHO);
+
+  if (frontDist < OBSTACLE_DIST_CM) { motorStop(); Serial.println("OBSTACLE_FRONT"); return;}
+  if (backDist < OBSTACLE_DIST_CM) { motorStop(); Serial.println("OBSTACLE_BACK"); return;}
+
+  // Line following
+  int left = digitalRead(SENSOR_LEFT);
+  int right = digitalRead(SENSOR_RIGHT);
+
+  if (left==LOW && right==LOW) motorForward(MOTOR_SPEED);
+  else if (left==LOW && right==HIGH) motorLeft(MOTOR_SPEED-50);
+  else if (left==HIGH && right==LOW) motorRight(MOTOR_SPEED-50);
+  else motorStop();
+
+  // Destination detection
+  if (left==LOW && right==LOW) {
+    if (bothSensorsSince==0) bothSensorsSince=millis();
+    else if (millis()-bothSensorsSince>DESTINATION_CONFIRM_MS){
+      destinationReached=true; motorStop(); openDrawers(); Serial.println("DESTINATION");
     }
-    else if ((digitalRead(L_S) == 0) && (digitalRead(R_S) == 1)) {
-      turnRight();
-    }
-    else if ((digitalRead(L_S) == 1) && (digitalRead(R_S) == 0)) {
-      turnLeft();
-    }
-  } 
-  else {
-    turnLeft();
-    delay(350);
-    forward();
-    delay(1000);
-    turnRight();
-    delay(200);
-    forward();
-    delay(500);
-  }
+  } else bothSensorsSince=0;
+
+  delay(20);
 }
