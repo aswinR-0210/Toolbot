@@ -3,6 +3,8 @@
 ## Objective
 The goal of this project was to design and build an autonomous **line follower robot** capable of navigating a predefined path, detecting the **destination**, and automatically opening drawers using a **servo mechanism**. The robot also features **obstacle detection** using ultrasonic sensors, stopping when an obstacle is detected and sending a notification via the **Blynk app**. Integration with Blynk allows remote control for starting/stopping the robot, manually opening drawers, and monitoring status. This project combines robotics, embedded systems, and IoT-based remote interaction, providing hands-on experience in hardware-software integration.
 
+![Concept](link-to-your-hardware-image)
+
 ---
 
 ### Skills Learned
