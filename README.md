@@ -29,7 +29,7 @@ The goal of this project was to design and build an autonomous **line follower r
 - **Ultrasonic Sensors (2)** — front and back obstacle detection.  
 - **SG90 Servo Motor** — drawer actuation.  
 - **Blynk App** — mobile control for robot start/stop, drawer operation, obstacle notifications.  
-- **Arduino IDE** — programming and uploading code to Arduino.  
+- **Arduino IDE** — programming and uploading code to both Arduino & esp8266.  
 
 ---
 
